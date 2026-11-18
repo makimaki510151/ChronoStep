@@ -20,13 +20,68 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 const audio = createAudio();
 
+const STORAGE_NAMES = 'chrono-step-names';
+
+function defaultLocalSeats() {
+  return [
+    { name: 'プレイヤー1', isCpu: false },
+    { name: 'プレイヤー2', isCpu: false },
+    { name: '', isCpu: true },
+    { name: '', isCpu: true },
+  ];
+}
+
+function defaultSavedNames() {
+  return {
+    localSeats: defaultLocalSeats(),
+    lobbyName: 'プレイヤー',
+    lobbyColor: PLAYER_COLORS[0],
+    lastRoomCode: '',
+  };
+}
+
+function loadSavedNames() {
+  try {
+    const rawText = localStorage.getItem(STORAGE_NAMES);
+    if (!rawText) return defaultSavedNames();
+    const raw = JSON.parse(rawText);
+    const seats = Array.isArray(raw.localSeats) ? raw.localSeats : null;
+    return {
+      localSeats: seats
+        ? [0, 1, 2, 3].map((i) => ({
+          name: typeof seats[i]?.name === 'string' ? seats[i].name.slice(0, 12) : '',
+          isCpu: !!seats[i]?.isCpu,
+        }))
+        : defaultLocalSeats(),
+      lobbyName: typeof raw.lobbyName === 'string' && raw.lobbyName.trim()
+        ? raw.lobbyName.trim().slice(0, 12)
+        : 'プレイヤー',
+      lobbyColor: PLAYER_COLORS.includes(raw.lobbyColor) ? raw.lobbyColor : PLAYER_COLORS[0],
+      lastRoomCode: typeof raw.lastRoomCode === 'string' ? raw.lastRoomCode.slice(0, 8).toUpperCase() : '',
+    };
+  } catch {
+    return defaultSavedNames();
+  }
+}
+
+function saveNames(patch = {}) {
+  const cur = loadSavedNames();
+  const next = { ...cur, ...patch };
+  try {
+    localStorage.setItem(STORAGE_NAMES, JSON.stringify(next));
+  } catch { /* ignore */ }
+  return next;
+}
+
+const savedNames = loadSavedNames();
+
 const app = {
   mode: null, // 'local' | 'host' | 'guest'
   net: null,
   state: null,
   localSeatId: null,
   lobbyRole: null,
-  lobbyColor: PLAYER_COLORS[0],
+  lobbyColor: savedNames.lobbyColor,
   lobbyPlayers: [],
   cpuSeq: 0,
   myPlayerId: null,
@@ -141,22 +196,44 @@ function destroyNet() {
 }
 
 /* —— local seats —— */
+function persistLocalSeatsFromDom() {
+  const localSeats = [0, 1, 2, 3].map((i) => ({
+    name: $(`#seat-editors input[data-seat="${i}"]`)?.value.trim() || '',
+    isCpu: !!$(`#seat-editors input[data-cpu="${i}"]`)?.checked,
+  }));
+  saveNames({ localSeats });
+}
+
 function buildSeatEditors() {
   const root = $('#seat-editors');
   root.innerHTML = '';
+  const draft = loadSavedNames().localSeats;
   for (let i = 0; i < 4; i++) {
+    const seat = draft[i] || defaultLocalSeats()[i];
     const row = document.createElement('div');
     row.className = 'seat-row';
+    const safeName = String(seat.name || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
     row.innerHTML = `
       <span class="seat-swatch" style="background:${PLAYER_COLORS[i]}"></span>
-      <input type="text" maxlength="12" data-seat="${i}" value="${i === 0 ? 'プレイヤー1' : i === 1 ? 'プレイヤー2' : ''}" placeholder="空き" />
-      <label><input type="checkbox" data-cpu="${i}" ${i >= 2 ? 'checked' : ''} ${i < 2 ? '' : ''}/> CPU</label>
+      <input type="text" maxlength="12" data-seat="${i}" value="${safeName}" placeholder="空き" />
+      <label><input type="checkbox" data-cpu="${i}" ${seat.isCpu ? 'checked' : ''}/> CPU</label>
     `;
     root.appendChild(row);
   }
+  root.querySelectorAll('input[data-seat]').forEach((input) => {
+    input.addEventListener('change', persistLocalSeatsFromDom);
+    input.addEventListener('blur', persistLocalSeatsFromDom);
+  });
+  root.querySelectorAll('input[data-cpu]').forEach((input) => {
+    input.addEventListener('change', persistLocalSeatsFromDom);
+  });
 }
 
 $('#btn-start-game').onclick = () => {
+  persistLocalSeatsFromDom();
   const seats = [];
   for (let i = 0; i < 4; i++) {
     const name = $(`#seat-editors input[data-seat="${i}"]`).value.trim();
@@ -180,9 +257,25 @@ $('#btn-start-game').onclick = () => {
 };
 
 /* —— lobby —— */
+function persistLobbyIdentity() {
+  const lobbyName = $('#lobby-name')?.value.trim() || 'プレイヤー';
+  const lastRoomCode = ($('#lobby-room')?.value || '').trim().toUpperCase();
+  saveNames({
+    lobbyName,
+    lobbyColor: app.lobbyColor,
+    lastRoomCode,
+  });
+}
+
 function openLobby(role) {
   app.lobbyRole = role;
   app.mode = role;
+  const saved = loadSavedNames();
+  app.lobbyColor = saved.lobbyColor;
+  $('#lobby-name').value = saved.lobbyName || 'プレイヤー';
+  if (role === 'guest' && saved.lastRoomCode) {
+    $('#lobby-room').value = saved.lastRoomCode;
+  }
   $('#lobby-role').textContent = role === 'host' ? 'ホストとして部屋を作ります' : 'ゲストとして部屋に入ります';
   $('#lobby-host-tools').style.display = role === 'host' ? '' : 'none';
   $('#lobby-room-wrap').style.display = role === 'guest' ? '' : 'none';
@@ -207,11 +300,17 @@ function buildColorPicker() {
     b.style.background = c;
     b.onclick = () => {
       app.lobbyColor = c;
+      persistLobbyIdentity();
       buildColorPicker();
     };
     root.appendChild(b);
   });
 }
+
+$('#lobby-name')?.addEventListener('change', persistLobbyIdentity);
+$('#lobby-name')?.addEventListener('blur', persistLobbyIdentity);
+$('#lobby-room')?.addEventListener('change', persistLobbyIdentity);
+$('#lobby-room')?.addEventListener('blur', persistLobbyIdentity);
 
 function renderLobbyPlayers() {
   const root = $('#lobby-players');
@@ -226,6 +325,7 @@ function renderLobbyPlayers() {
 
 $('#btn-lobby-connect').onclick = async () => {
   const name = $('#lobby-name').value.trim() || 'プレイヤー';
+  persistLobbyIdentity();
   try {
     destroyNet();
     if (app.lobbyRole === 'host') {
