@@ -176,6 +176,32 @@ describe('engine basics', () => {
     assert.ok(previews.some((p) => p.cellId === 4 && p.path.length === 4));
   });
 
+  it('choose_path accepts cellId', () => {
+    const state = createInitialState({
+      seats: [
+        { id: 'a', name: 'A', isCpu: false },
+        { id: 'b', name: 'B', isCpu: false },
+      ],
+    });
+    // マス5から分岐（出目で到達できる位置へ先に移動）
+    const a = state.players.find((p) => p.id === 'a');
+    a.pos = 5;
+    state.dicePool = [
+      { id: 'd1', value: 1 },
+      { id: 'd2', value: 2 },
+      { id: 'd3', value: 3 },
+    ];
+    state.turnOrder = ['a', 'b'];
+    state.turnIndex = 0;
+    applyAction(state, 'a', { type: 'pick_die', dieId: 'd1' });
+    assert.equal(state.phase, PHASE.MOVE_CHOICE);
+    const shortcut = state.pending.options.find((o) => o.cellId === 24);
+    assert.ok(shortcut);
+    const res = applyAction(state, 'a', { type: 'choose_path', cellId: 24 });
+    assert.equal(res.ok, true);
+    assert.equal(a.pos, 24);
+  });
+
   it('reverse sets next-move override on stop', () => {
     const state = createInitialState({
       seats: [

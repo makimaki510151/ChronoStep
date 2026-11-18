@@ -586,8 +586,17 @@ function setInspect(cellId) {
   if (cell?.isBranch) tags.push('分岐');
   if (cell?.kind?.startsWith('shortcut')) tags.push('ショートカット');
 
+  const pending = app.state.pending;
+  const isPathPick = pending?.type === 'move_choice'
+    && pending.playerId === app.myPlayerId
+    && canControl(app.myPlayerId)
+    && pending.options.some((o) => o.cellId === cellId);
+
   let html = `<div class="inspect-title">マス ${cell?.label ?? cellId}</div>`;
   if (tags.length) html += `<div class="inspect-meta">${tags.join(' · ')}</div>`;
+  if (isPathPick) {
+    html += `<div class="inspect-meta">到達候補 — タップでここに進む</div>`;
+  }
   if (occupants.length) {
     html += `<div class="inspect-meta">コマ: ${occupants.map((p) => p.name).join(', ')}</div>`;
   }
@@ -601,6 +610,45 @@ function setInspect(cellId) {
     html += `<div class="inspect-desc">ノーマルマス（効果なし）。停止時にパネルを設置できる。</div>`;
   }
   el.innerHTML = html;
+}
+
+function handleBoardCellClick(cellId) {
+  if (!app.state) {
+    setInspect(cellId);
+    return;
+  }
+  const pending = app.state.pending;
+  if (
+    pending?.type === 'move_choice'
+    && pending.playerId === app.myPlayerId
+    && canControl(app.myPlayerId)
+  ) {
+    const idx = pending.options.findIndex((o) => o.cellId === cellId);
+    if (idx >= 0) {
+      sendAction({ type: 'choose_path', optionIndex: idx, cellId });
+      setInspect(cellId);
+      return;
+    }
+  }
+  setInspect(cellId);
+}
+
+function handleBoardCellHover(cellId) {
+  if (!app.state) return;
+  const pending = app.state.pending;
+  if (pending?.type !== 'move_choice') return;
+  // 候補全体は残しつつ、ホバー中の経路だけ強調
+  const destinations = pending.options.map((o) => o.cellId);
+  app.state.hoverDestinations = destinations;
+  if (cellId == null) {
+    app.state.highlightPath = [];
+    app.canvasApi?.redraw();
+    return;
+  }
+  const opt = pending.options.find((o) => o.cellId === cellId);
+  app.state.highlightPath = opt ? [...opt.path] : [];
+  app.canvasApi?.redraw();
+  if (opt) setInspect(cellId);
 }
 
 /* —— game —— */
@@ -632,7 +680,10 @@ function enterGameScreen() {
     app.canvasApi = mountBoardCanvas(
       $('#board'),
       () => app.state,
-      (cellId) => setInspect(cellId),
+      {
+        onCellClick: (cellId) => handleBoardCellClick(cellId),
+        onCellHover: (cellId) => handleBoardCellHover(cellId),
+      },
     );
   }
   app.canvasApi.resize();
@@ -642,6 +693,10 @@ function enterGameScreen() {
 
 function renderAll() {
   if (!app.state) return;
+  // 経路選択中は到達候補を常にハイライト
+  if (app.state.pending?.type === 'move_choice') {
+    app.state.hoverDestinations = app.state.pending.options.map((o) => o.cellId);
+  }
   renderPlayers();
   renderDice();
   renderLog();
@@ -777,19 +832,26 @@ function renderAction() {
   }
 
   if (pending?.type === 'move_choice') {
-    root.innerHTML = '<p class="action-note">分岐があります。到達マスを選んでください。</p>';
+    // 盤面の到達候補を常時ハイライト
+    app.state.hoverDestinations = pending.options.map((o) => o.cellId);
+    root.innerHTML = '<p class="action-note">分岐があります。盤面の金色マスをタップするか、下のボタンで到達先を選んでください。</p>';
     dock.hidden = false;
-    dock.innerHTML = '<div class="choice-title">経路選択</div>';
+    dock.innerHTML = '<div class="choice-title">経路選択（盤面タップ可）</div>';
     pending.options.forEach((opt, i) => {
       const b = document.createElement('button');
       b.className = 'btn';
       b.textContent = `マス ${app.state.board.cells[opt.cellId]?.label ?? opt.cellId}（${opt.path.length}歩）`;
       b.onmouseenter = () => {
-        app.state.highlightPath = opt.path;
-        app.state.hoverDestinations = [opt.cellId];
+        app.state.highlightPath = [...opt.path];
+        app.state.hoverDestinations = pending.options.map((o) => o.cellId);
+        app.canvasApi?.redraw();
+        setInspect(opt.cellId);
+      };
+      b.onmouseleave = () => {
+        app.state.highlightPath = [];
         app.canvasApi?.redraw();
       };
-      b.onclick = () => sendAction({ type: 'choose_path', optionIndex: i });
+      b.onclick = () => sendAction({ type: 'choose_path', optionIndex: i, cellId: opt.cellId });
       dock.appendChild(b);
     });
     return;
