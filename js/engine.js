@@ -37,8 +37,8 @@ function rollDie() {
 }
 
 function pushLog(state, text, kind = 'info') {
-  state.log.unshift({ t: Date.now(), text, kind });
-  if (state.log.length > 80) state.log.length = 80;
+  state.log.push({ t: Date.now(), text, kind });
+  if (state.log.length > 80) state.log.splice(0, state.log.length - 80);
 }
 
 function alivePlayers(state) {

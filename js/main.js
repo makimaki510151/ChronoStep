@@ -13,9 +13,12 @@ import {
 } from './engine.js';
 import { createNet } from './net.js';
 import { mountBoardCanvas } from './render.js';
+import { createAudio } from './audio.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+const audio = createAudio();
 
 const app = {
   mode: null, // 'local' | 'host' | 'guest'
@@ -29,12 +32,46 @@ const app = {
   myPlayerId: null,
   canvasApi: null,
   cpuTimer: null,
+  selectedPanel: null,
+  lastLogLen: 0,
+  lastWaitingId: null,
+  lastRound: null,
 };
 
 document.getElementById('app-version-label').textContent = `v${APP_VERSION}`;
 
+function unlockAudio() {
+  audio.resume();
+}
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+document.addEventListener('keydown', unlockAudio, { once: true });
+
+function bindVolumeUi() {
+  const v = audio.getVolume();
+  $('#vol-master').value = v.master;
+  $('#vol-bgm').value = v.bgm;
+  $('#vol-se').value = v.se;
+  $('#btn-mute').textContent = v.muted ? '消' : '音';
+  $('#vol-master').oninput = (e) => { unlockAudio(); audio.setMaster(e.target.value); };
+  $('#vol-bgm').oninput = (e) => { unlockAudio(); audio.setBgm(e.target.value); };
+  $('#vol-se').oninput = (e) => { unlockAudio(); audio.setSe(e.target.value); };
+  $('#btn-mute').onclick = () => {
+    unlockAudio();
+    const muted = audio.toggleMute();
+    $('#btn-mute').textContent = muted ? '消' : '音';
+    audio.sfx.click();
+  };
+  $('#btn-vol-expand').onclick = () => {
+    unlockAudio();
+    $('#vol-dock')?.classList.toggle('vol-collapsed');
+    audio.sfx.click();
+  };
+}
+bindVolumeUi();
+
 function showScreen(id) {
   $$('.screen').forEach((el) => el.classList.toggle('active', el.id === id));
+  if (id === 'screen-title') audio.stopBgm();
 }
 
 function toast(msg) {
@@ -53,9 +90,11 @@ function setNetStatus(msg, kind = 'info') {
 }
 
 /* —— screens —— */
-$('#btn-howto').onclick = () => showScreen('screen-howto');
-$('#btn-howto-back').onclick = () => showScreen('screen-title');
+$('#btn-howto').onclick = () => { unlockAudio(); audio.sfx.click(); showScreen('screen-howto'); };
+$('#btn-howto-back').onclick = () => { unlockAudio(); audio.sfx.click(); showScreen('screen-title'); };
 $('#btn-local').onclick = () => {
+  unlockAudio();
+  audio.sfx.click();
   app.mode = 'local';
   buildSeatEditors();
   showScreen('screen-setup');
@@ -89,6 +128,9 @@ function exitToTitle() {
   destroyNet();
   app.state = null;
   app.mode = null;
+  app.selectedPanel = null;
+  audio.stopBgm();
+  audio.setBgmMode('normal');
   $('#winner').hidden = true;
   showScreen('screen-title');
 }
@@ -351,11 +393,19 @@ function onHostNetEvent({ from, data }) {
   if (data.type === 'action' && app.state) {
     const pid = resolvePeerPlayerId(from);
     if (!pid) return;
+    const prev = serializeState(app.state);
     const result = applyAction(app.state, pid, data.action);
     if (!result.ok) {
       app.net.sendTo(from, { type: 'action_reject', error: result.error });
       return;
     }
+    if (data.action?.type === 'pick_die') {
+      const dieVal = prev.dicePool.find((d) => d.id === data.action.dieId)?.value;
+      playActionSfx({ ...data.action, value: dieVal }, prev, app.state);
+    } else {
+      playActionSfx(data.action, prev, app.state);
+    }
+    reactToStateChange(prev);
     syncState();
     scheduleCpu();
     return;
@@ -419,17 +469,56 @@ function syncState() {
 
 function pushUiLog(text) {
   if (!app.state) return;
-  app.state.log.unshift({ t: Date.now(), text, kind: 'system' });
+  app.state.log.push({ t: Date.now(), text, kind: 'system' });
+}
+
+function setInspect(cellId) {
+  const el = $('#inspect');
+  if (!app.state || cellId == null) {
+    el.innerHTML = 'マスをタップして詳細';
+    return;
+  }
+  const cell = app.state.board.cells[cellId];
+  const panel = app.state.panelsOnBoard[cellId];
+  const occupants = app.state.players.filter((p) => p.pos === cellId);
+  const tags = [];
+  if (cell?.isStart) tags.push('スタート');
+  if (cell?.isBranch) tags.push('分岐');
+  if (cell?.kind?.startsWith('shortcut')) tags.push('ショートカット');
+
+  let html = `<div class="inspect-title">マス ${cell?.label ?? cellId}</div>`;
+  if (tags.length) html += `<div class="inspect-meta">${tags.join(' · ')}</div>`;
+  if (occupants.length) {
+    html += `<div class="inspect-meta">コマ: ${occupants.map((p) => p.name).join(', ')}</div>`;
+  }
+  if (panel) {
+    const meta = PANEL_META[panel.type];
+    const owner = app.state.players.find((p) => p.id === panel.ownerId);
+    html += `<div class="inspect-title">${meta?.name || panel.type}</div>`;
+    html += `<div class="inspect-meta">設置者: ${owner?.name || '?'} · 発動: ${meta?.timing || '—'}</div>`;
+    html += `<div class="inspect-desc">${meta?.desc || ''}</div>`;
+  } else {
+    html += `<div class="inspect-desc">ノーマルマス（効果なし）。停止時にパネルを設置できる。</div>`;
+  }
+  el.innerHTML = html;
 }
 
 /* —— game —— */
 function startGame(seats) {
   app.state = createInitialState({ seats });
+  app.selectedPanel = null;
+  app.lastLogLen = 0;
+  app.lastWaitingId = null;
+  app.lastRound = null;
   // peerId を反映
   for (const s of seats) {
     const p = app.state.players.find((x) => x.id === s.id);
     if (p) p.peerId = s.peerId || null;
   }
+  unlockAudio();
+  audio.startBgm();
+  audio.setBgmMode('normal');
+  audio.sfx.round();
   enterGameScreen();
   scheduleCpu();
 }
@@ -437,25 +526,17 @@ function startGame(seats) {
 function enterGameScreen() {
   showScreen('screen-game');
   $('#winner').hidden = true;
+  unlockAudio();
+  audio.startBgm();
   if (!app.canvasApi) {
     app.canvasApi = mountBoardCanvas(
       $('#board'),
       () => app.state,
-      (cellId) => {
-        const cell = app.state?.board.cells[cellId];
-        const panel = app.state?.panelsOnBoard[cellId];
-        let text = `マス ${cell?.label ?? cellId}`;
-        if (cell?.isStart) text += '（スタート）';
-        if (cell?.isBranch) text += '（分岐）';
-        if (panel) {
-          const owner = app.state.players.find((p) => p.id === panel.ownerId);
-          text += ` / ${PANEL_META[panel.type]?.name}（${owner?.name || '?'}）`;
-        }
-        $('#inspect').textContent = text;
-      },
+      (cellId) => setInspect(cellId),
     );
   }
   app.canvasApi.resize();
+  setInspect(null);
   renderAll();
 }
 
@@ -559,13 +640,18 @@ function renderDice() {
 
 function renderLog() {
   const root = $('#log');
+  const items = app.state.log || [];
+  const grew = items.length > app.lastLogLen;
+  app.lastLogLen = items.length;
   root.innerHTML = '';
-  for (const item of (app.state.log || []).slice(0, 40)) {
+  // 古い→新しい（上から下）
+  for (const item of items.slice(-50)) {
     const div = document.createElement('div');
     div.className = `log-item ${item.kind || ''}`;
     div.textContent = item.text;
     root.appendChild(div);
   }
+  if (grew) root.scrollTop = root.scrollHeight;
 }
 
 function renderAction() {
@@ -610,40 +696,25 @@ function renderAction() {
   }
 
   if (pending?.type === 'panel_place') {
-    root.innerHTML = '<p class="action-note">空きマスです。パネルを設置できます。</p>';
-    const grid = document.createElement('div');
-    grid.className = 'panel-pick';
-    const me = app.state.players.find((p) => p.id === app.myPlayerId);
-    for (const [type, meta] of Object.entries(PANEL_META)) {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      b.disabled = !(me.panels[type] > 0);
-      b.textContent = `${meta.name}×${me.panels[type]}`;
-      b.title = meta.desc;
-      b.onclick = () => sendAction({ type: 'place_panel', panel: type });
-      grid.appendChild(b);
-    }
-    root.appendChild(grid);
-    const skip = document.createElement('button');
-    skip.className = 'btn ghost';
-    skip.textContent = '設置しない';
-    skip.onclick = () => sendAction({ type: 'skip_panel' });
-    root.appendChild(skip);
+    renderPanelChooser(root, {
+      note: '空きマスです。パネルを選んで設置できます。',
+      me: app.state.players.find((p) => p.id === app.myPlayerId),
+      requireStock: true,
+      confirmLabel: 'このパネルを設置',
+      onConfirm: (type) => sendAction({ type: 'place_panel', panel: type }),
+      allowSkip: true,
+    });
     return;
   }
 
   if (pending?.type === 'panel_refill') {
-    root.innerHTML = '<p class="action-note">スタート通過 — パネルを1枚補充</p>';
-    const grid = document.createElement('div');
-    grid.className = 'panel-pick';
-    for (const [type, meta] of Object.entries(PANEL_META)) {
-      const b = document.createElement('button');
-      b.className = 'btn';
-      b.textContent = meta.name;
-      b.onclick = () => sendAction({ type: 'refill_panel', panel: type });
-      grid.appendChild(b);
-    }
-    root.appendChild(grid);
+    renderPanelChooser(root, {
+      note: 'スタート通過 — 補充するパネルを選んでください。',
+      requireStock: false,
+      confirmLabel: 'このパネルを補充',
+      onConfirm: (type) => sendAction({ type: 'refill_panel', panel: type }),
+      allowSkip: false,
+    });
     return;
   }
 
@@ -653,6 +724,78 @@ function renderAction() {
   }
 
   root.innerHTML = '<p class="action-note">待機中…</p>';
+}
+
+function renderPanelChooser(root, {
+  note,
+  me = null,
+  requireStock = false,
+  confirmLabel,
+  onConfirm,
+  allowSkip = false,
+}) {
+  root.innerHTML = `<p class="action-note">${note}</p>`;
+  const available = Object.keys(PANEL_META).filter((type) => {
+    if (!requireStock) return true;
+    return (me?.panels?.[type] || 0) > 0;
+  });
+  if (!app.selectedPanel || !available.includes(app.selectedPanel)) {
+    app.selectedPanel = available[0] || null;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'panel-pick';
+  for (const [type, meta] of Object.entries(PANEL_META)) {
+    const stock = me?.panels?.[type];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn' + (app.selectedPanel === type ? ' selected' : '');
+    b.disabled = requireStock && !(stock > 0);
+    b.textContent = requireStock ? `${meta.name}×${stock}` : meta.name;
+    b.onclick = () => {
+      unlockAudio();
+      audio.sfx.click();
+      app.selectedPanel = type;
+      renderAction();
+    };
+    grid.appendChild(b);
+  }
+  root.appendChild(grid);
+
+  const desc = document.createElement('div');
+  desc.className = 'panel-desc';
+  const meta = app.selectedPanel ? PANEL_META[app.selectedPanel] : null;
+  if (meta) {
+    desc.innerHTML = `<strong>${meta.name}</strong><div class="timing">発動: ${meta.timing}</div>${meta.desc}`;
+  } else {
+    desc.textContent = 'パネルを選択してください。';
+  }
+  root.appendChild(desc);
+
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.className = 'btn primary';
+  confirm.textContent = confirmLabel;
+  confirm.disabled = !app.selectedPanel;
+  confirm.onclick = () => {
+    if (!app.selectedPanel) return;
+    const type = app.selectedPanel;
+    app.selectedPanel = null;
+    onConfirm(type);
+  };
+  root.appendChild(confirm);
+
+  if (allowSkip) {
+    const skip = document.createElement('button');
+    skip.type = 'button';
+    skip.className = 'btn ghost';
+    skip.textContent = '設置しない';
+    skip.onclick = () => {
+      app.selectedPanel = null;
+      sendAction({ type: 'skip_panel' });
+    };
+    root.appendChild(skip);
+  }
 }
 
 function canControl(playerId) {
@@ -683,8 +826,52 @@ function localApply(action, asPlayerId) {
   }
 }
 
+function playActionSfx(action, prevState, nextState) {
+  if (!action) return;
+  if (action.type === 'pick_die') {
+    audio.sfx.pickDie(action.value || 3);
+    return;
+  }
+  if (action.type === 'choose_path') {
+    audio.sfx.fork();
+    return;
+  }
+  if (action.type === 'place_panel') {
+    audio.sfx.place();
+    const fn = audio.sfx[action.panel];
+    if (typeof fn === 'function') setTimeout(() => fn.call(audio.sfx), 80);
+    return;
+  }
+  if (action.type === 'refill_panel') {
+    audio.sfx.place();
+    return;
+  }
+  if (action.type === 'skip_panel') {
+    audio.sfx.click();
+  }
+
+  // ログ差分から効果音
+  if (prevState && nextState) {
+    const added = (nextState.log || []).slice((prevState.log || []).length);
+    for (const item of added) {
+      const t = item.text || '';
+      if (t.includes('踏みつけ')) audio.sfx.stomp();
+      else if (t.includes('ドレイン')) audio.sfx.drain();
+      else if (t.includes('ブースト')) audio.sfx.boost();
+      else if (t.includes('リバース')) audio.sfx.reverse();
+      else if (t.includes('ロック')) audio.sfx.lock();
+      else if (t.includes('脱落')) audio.sfx.eliminate();
+      else if (t.includes('サドンデス')) {
+        audio.setBgmMode('sudden');
+        audio.sfx.sudden();
+      }
+    }
+  }
+}
+
 function sendAction(action) {
   if (!app.state) return;
+  unlockAudio();
 
   if (app.mode === 'guest') {
     if (action.type === 'hover_die' || action.type === 'clear_hover') {
@@ -694,14 +881,20 @@ function sendAction(action) {
       app.net?.sendToHost({ type: 'hover', action });
       return;
     }
+    if (action.type === 'pick_die') {
+      const die = app.state.dicePool.find((d) => d.id === action.dieId);
+      playActionSfx({ ...action, value: die?.value });
+    } else {
+      playActionSfx(action);
+    }
     app.net?.sendToHost({ type: 'action', action });
     return;
   }
 
   // local / host
   const actor = waitingPlayerId(app.state) || app.myPlayerId;
-  // pending 中は pending のプレイヤー
   const pid = app.state.pending?.playerId || actor;
+  const prev = serializeState(app.state);
   const result = applyAction(app.state, pid, action);
   if (!result.ok && action.type !== 'hover_die' && action.type !== 'clear_hover') {
     toast(result.error || '不正な操作');
@@ -711,8 +904,26 @@ function sendAction(action) {
     app.canvasApi?.redraw();
     return;
   }
+  if (action.type === 'pick_die') {
+    const dieVal = prev.dicePool.find((d) => d.id === action.dieId)?.value;
+    playActionSfx({ ...action, value: dieVal }, prev, app.state);
+  } else {
+    playActionSfx(action, prev, app.state);
+  }
+  reactToStateChange(prev);
   syncState();
   scheduleCpu();
+}
+
+function reactToStateChange(prev) {
+  if (!app.state) return;
+  if (app.state.round >= 11) audio.setBgmMode('sudden');
+  const waiting = waitingPlayerId(app.state);
+  if (waiting && waiting !== app.lastWaitingId && waiting === app.myPlayerId && canControl(waiting)) {
+    audio.sfx.yourTurn();
+  }
+  app.lastWaitingId = waiting;
+  if (prev && app.state.round !== prev.round) audio.sfx.round();
 }
 
 function scheduleCpu() {
@@ -728,8 +939,16 @@ function scheduleCpu() {
   app.cpuTimer = setTimeout(() => {
     const action = chooseCpuAction(app.state, waiting);
     if (!action) return;
+    const prev = serializeState(app.state);
     const result = applyAction(app.state, waiting, action);
     if (result.ok) {
+      if (action.type === 'pick_die') {
+        const dieVal = prev.dicePool.find((d) => d.id === action.dieId)?.value;
+        playActionSfx({ ...action, value: dieVal }, prev, app.state);
+      } else {
+        playActionSfx(action, prev, app.state);
+      }
+      reactToStateChange(prev);
       syncState();
       scheduleCpu();
     }
@@ -744,6 +963,10 @@ function maybeShowWinner() {
   const w = app.state.players.find((p) => p.id === app.state.winnerId);
   $('#winner-name').textContent = w ? `${w.name} の勝利` : '引き分け';
   $('#winner-sub').textContent = `ラウンド ${app.state.round} で決着`;
+  if ($('#winner').hidden) {
+    audio.stopBgm();
+    audio.sfx.win();
+  }
   $('#winner').hidden = false;
 }
 
