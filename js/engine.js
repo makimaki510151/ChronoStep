@@ -285,6 +285,8 @@ function afterDicePicked(state, player, dieValue) {
   };
   state.highlightPath = [];
   state.highlightCell = null;
+  // 到達候補マスをハイライト（盤面タップ選択用）
+  state.hoverDestinations = uniq.map((u) => u.cellId);
 }
 
 function executeMove(state, player, path, dieValue) {
@@ -544,10 +546,17 @@ export function applyAction(state, actorId, action) {
 
   if (action.type === 'choose_path') {
     if (pending?.type !== 'move_choice') return { ok: false, error: '経路選択中ではない' };
-    const opt = pending.options[action.optionIndex];
+    let opt = null;
+    if (Number.isInteger(action.optionIndex)) {
+      opt = pending.options[action.optionIndex];
+    } else if (action.cellId != null) {
+      opt = pending.options.find((o) => o.cellId === action.cellId) || null;
+    }
     if (!opt) return { ok: false, error: '不正な経路' };
     const player = playerById(state, actorId);
     state.pending = null;
+    state.highlightPath = [];
+    state.hoverDestinations = [];
     executeMove(state, player, opt.path, pending.dieValue);
     return { ok: true };
   }

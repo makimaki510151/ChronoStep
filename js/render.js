@@ -104,16 +104,19 @@ export function drawBoard(ctx, state, opts = {}) {
     } else {
       ctx.fillStyle = '#1f3f4a';
     }
+    const isPickTarget = isHover && state.phase === 'move_choice';
     if (onPath) ctx.fillStyle = '#3d6b4f';
-    if (isHover) ctx.fillStyle = '#c4a35a';
+    if (isHover) ctx.fillStyle = isPickTarget ? '#d2b15f' : '#c4a35a';
 
     roundRect(ctx, x, y, CELL, CELL, 4);
     ctx.fill();
 
-    ctx.strokeStyle = cell.isBranch
-      ? 'rgba(212, 168, 75, 0.9)'
-      : 'rgba(214, 201, 160, 0.28)';
-    ctx.lineWidth = cell.isBranch ? 2.2 : 1.2;
+    ctx.strokeStyle = isPickTarget
+      ? 'rgba(236, 228, 204, 0.95)'
+      : cell.isBranch
+        ? 'rgba(212, 168, 75, 0.9)'
+        : 'rgba(214, 201, 160, 0.28)';
+    ctx.lineWidth = isPickTarget ? 2.8 : cell.isBranch ? 2.2 : 1.2;
     ctx.stroke();
 
     // ラベル
@@ -134,6 +137,14 @@ export function drawBoard(ctx, state, opts = {}) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(meta?.short || '?', x + CELL / 2, y + 32);
+    }
+
+    if (isPickTarget && !panel) {
+      ctx.fillStyle = '#1a1510';
+      ctx.font = '700 12px "IBM Plex Sans JP", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('着', x + CELL / 2, y + CELL / 2 + 6);
     }
   }
 
@@ -175,7 +186,19 @@ export function drawBoard(ctx, state, opts = {}) {
   }
 }
 
-export function mountBoardCanvas(canvas, stateRef, onCellClick) {
+function eventToBoardPx(canvas, e) {
+  const rect = canvas.getBoundingClientRect();
+  const cssW = parseFloat(canvas.style.width) || rect.width;
+  const cssH = parseFloat(canvas.style.height) || rect.height;
+  return {
+    px: ((e.clientX - rect.left) / rect.width) * cssW,
+    py: ((e.clientY - rect.top) / rect.height) * cssH,
+  };
+}
+
+export function mountBoardCanvas(canvas, stateRef, handlers = {}) {
+  const onCellClick = typeof handlers === 'function' ? handlers : handlers.onCellClick;
+  const onCellHover = typeof handlers === 'function' ? null : handlers.onCellHover;
   const ctx = canvas.getContext('2d');
 
   function resize() {
@@ -200,18 +223,25 @@ export function mountBoardCanvas(canvas, stateRef, onCellClick) {
   canvas.addEventListener('click', (e) => {
     const state = stateRef();
     if (!state) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / (rect.width * (Math.min(window.devicePixelRatio || 1, 2)));
-    // use CSS pixels relative to drawn size
-    const x = ((e.clientX - rect.left) / rect.width) * (canvas.width / (Math.min(window.devicePixelRatio || 1, 2)));
-    const y = ((e.clientY - rect.top) / rect.height) * (canvas.height / (Math.min(window.devicePixelRatio || 1, 2)));
-    // simpler: map via style size
-    const cssW = parseFloat(canvas.style.width);
-    const cssH = parseFloat(canvas.style.height);
-    const px = ((e.clientX - rect.left) / rect.width) * cssW;
-    const py = ((e.clientY - rect.top) / rect.height) * cssH;
+    const { px, py } = eventToBoardPx(canvas, e);
     const id = hitTestCell(state.board, px, py);
     if (id != null) onCellClick?.(id);
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    const state = stateRef();
+    if (!state) return;
+    const { px, py } = eventToBoardPx(canvas, e);
+    const id = hitTestCell(state.board, px, py);
+    onCellHover?.(id);
+    const selectable = state.pending?.type === 'move_choice'
+      && (state.pending.options || []).some((o) => o.cellId === id);
+    canvas.style.cursor = selectable ? 'pointer' : 'default';
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    onCellHover?.(null);
+    canvas.style.cursor = 'default';
   });
 
   return { resize, redraw };
