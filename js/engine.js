@@ -61,7 +61,16 @@ function panelsRemaining(player) {
   return PANEL_TYPES.reduce((s, k) => s + (player.panels[k] || 0), 0);
 }
 
-export function createInitialState({ seats, seedLog } = {}) {
+function shuffleIds(ids) {
+  const arr = [...ids];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+export function createInitialState({ seats, seedLog, shuffleTurnOrder = true } = {}) {
   const board = createBoard();
   const players = (seats || []).map((seat, i) => ({
     id: seat.id ?? `p${i}`,
@@ -77,13 +86,16 @@ export function createInitialState({ seats, seedLog } = {}) {
     laps: 0,
   }));
 
+  const ids = players.map((p) => p.id);
+  const turnOrder = shuffleTurnOrder ? shuffleIds(ids) : ids;
+
   const state = {
     version: 1,
     board,
     players,
     panelsOnBoard: {}, // cellId -> { type, ownerId }
     dicePool: [],
-    turnOrder: players.map((p) => p.id),
+    turnOrder,
     turnIndex: 0,
     round: 1,
     phase: PHASE.DICE,
@@ -96,6 +108,10 @@ export function createInitialState({ seats, seedLog } = {}) {
 
   if (seedLog !== false) {
     pushLog(state, `ゲーム開始 — ${players.length}人、タイム${INITIAL_TIME}`, 'system');
+    const orderNames = turnOrder
+      .map((id) => playerById(state, id)?.name || id)
+      .join(' → ');
+    pushLog(state, `手番順: ${orderNames}`, 'system');
   }
   beginDicePhase(state);
   return state;

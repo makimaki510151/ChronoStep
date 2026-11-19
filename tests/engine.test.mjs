@@ -56,10 +56,30 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: true },
         { id: 'b', name: 'B', isCpu: true },
       ],
+      shuffleTurnOrder: false,
     });
     assert.equal(state.phase, PHASE.DRAFT);
     assert.equal(state.dicePool.length, 3);
     assert.equal(state.players[0].time, 100);
+  });
+
+  it('randomizes initial turn order by default', () => {
+    const seats = [
+      { id: 'a', name: 'A', isCpu: false },
+      { id: 'b', name: 'B', isCpu: false },
+      { id: 'c', name: 'C', isCpu: true },
+      { id: 'd', name: 'D', isCpu: true },
+    ];
+    const seen = new Set();
+    for (let i = 0; i < 40; i += 1) {
+      const state = createInitialState({ seats, seedLog: false });
+      assert.deepEqual([...state.turnOrder].sort(), ['a', 'b', 'c', 'd']);
+      seen.add(state.turnOrder.join(','));
+      if (seen.size >= 2) break;
+    }
+    assert.ok(seen.size >= 2, 'expected at least two distinct turn orders');
+    const fixed = createInitialState({ seats, seedLog: false, shuffleTurnOrder: false });
+    assert.deepEqual(fixed.turnOrder, ['a', 'b', 'c', 'd']);
   });
 
   it('picking a die moves and spends time', () => {
@@ -68,6 +88,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: true },
       ],
+      shuffleTurnOrder: false,
     });
     // force dice
     state.dicePool = [
@@ -92,6 +113,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     state.panelsOnBoard[3] = { type: 'drain', ownerId: 'b' };
     state.dicePool = [
@@ -117,6 +139,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     state.panelsOnBoard[2] = { type: 'lock', ownerId: 'b' };
     const previews = previewDestinations(state, 'a', 5);
@@ -136,6 +159,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     const a = state.players.find((p) => p.id === 'a');
     const b = state.players.find((p) => p.id === 'b');
@@ -162,6 +186,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: true },
       ],
+      shuffleTurnOrder: false,
     });
     state.dicePool = [
       { id: 'd1', value: 2 },
@@ -185,6 +210,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     state.panelsOnBoard[2] = { type: 'boost', ownerId: 'b' };
     const previews = previewDestinations(state, 'a', 2);
@@ -198,6 +224,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     // マス5から分岐（出目で到達できる位置へ先に移動）
     const a = state.players.find((p) => p.id === 'a');
@@ -224,6 +251,7 @@ describe('engine basics', () => {
         { id: 'a', name: 'A', isCpu: false },
         { id: 'b', name: 'B', isCpu: false },
       ],
+      shuffleTurnOrder: false,
     });
     state.panelsOnBoard[3] = { type: 'reverse', ownerId: 'b' };
     state.dicePool = [
