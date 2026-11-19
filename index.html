@@ -158,11 +158,17 @@
         <div class="dice-pool-bar" id="dice-pool-bar">
           <div class="dice-pool-label">共通ダイスプール</div>
           <div class="dice-pool" id="dice-pool"></div>
-          <div class="dice-hint" id="dice-hint">手番の人がダイスを選ぶ</div>
+          <div class="dice-meta">
+            <div class="dice-hint" id="dice-hint">手番の人がダイスを選ぶ</div>
+            <div class="strategy-assist" id="strategy-assist" hidden></div>
+          </div>
         </div>
 
         <div class="board-wrap">
           <canvas id="board"></canvas>
+          <div id="turn-banner" class="turn-banner" hidden></div>
+          <div id="event-flash" class="event-flash" hidden></div>
+          <div id="time-fx-layer" class="time-fx-layer" aria-hidden="true"></div>
           <div id="inspect">マスをタップして詳細</div>
           <div id="choice-dock" hidden></div>
         </div>

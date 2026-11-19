@@ -150,10 +150,8 @@ export function drawBoard(ctx, state, opts = {}) {
 
   // プレイヤーコマ
   const byPos = new Map();
+  const activeId = opts.activePlayerId || state._uiActiveId || null;
   for (const p of state.players) {
-    if (!p.alive && p.time <= 0) {
-      // 脱落者も薄く残す
-    }
     const list = byPos.get(p.pos) || [];
     list.push(p);
     byPos.set(p.pos, list);
@@ -166,14 +164,22 @@ export function drawBoard(ctx, state, opts = {}) {
     list.forEach((p, i) => {
       const ox = x + 14 + (i % 2) * 18;
       const oy = y + 14 + Math.floor(i / 2) * 18;
+      const isActive = p.id === activeId && p.alive;
+      if (isActive) {
+        ctx.beginPath();
+        ctx.arc(ox, oy, 13, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(212, 168, 75, 0.55)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
       ctx.beginPath();
       ctx.arc(ox, oy, p.alive ? 9 : 7, 0, Math.PI * 2);
       ctx.fillStyle = p.color;
       ctx.globalAlpha = p.alive ? 1 : 0.35;
       ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(20, 16, 12, 0.65)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isActive ? 'rgba(236, 228, 204, 0.9)' : 'rgba(20, 16, 12, 0.65)';
+      ctx.lineWidth = isActive ? 2.5 : 2;
       ctx.stroke();
       if (p.directionOverride === 'ccw') {
         ctx.fillStyle = '#fff';
