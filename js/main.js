@@ -838,7 +838,7 @@ function showStrategyAssist(die, playerId) {
     lines.push(`<span class="sa-good">好機: ${assessment.opportunities.slice(0, 2).join('、')}</span>`);
   }
   if (!assessment.dangers.length && !assessment.opportunities.length) {
-    lines.push('目立った罠・設置機会なし — 距離と手番順で判断');
+    lines.push('罠・設置の目立った差はなし');
   }
   assist.innerHTML = lines.join('<br>');
   assist.classList.remove('is-empty');
