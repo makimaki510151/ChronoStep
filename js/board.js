@@ -47,6 +47,18 @@ export const PANEL_META = {
   },
 };
 
+/** パネル種別ID → 日本語名 */
+export function panelLabel(type) {
+  return PANEL_META[type]?.name || String(type || '');
+}
+
+/** マスID → 表示ラベル */
+export function cellLabel(board, cellId) {
+  const cell = board?.cells?.[cellId];
+  if (!cell) return String(cellId);
+  return cell.isStart ? 'START' : cell.label;
+}
+
 export const PLAYER_COLORS = ['#c45c4a', '#3a7ca5', '#4a8f6a', '#c9a227'];
 
 /**

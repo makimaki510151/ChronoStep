@@ -10,8 +10,10 @@ import {
   STOMP_AMOUNT,
   SUDDEN_DEATH_FROM_ROUND,
   SUDDEN_DEATH_TICK,
+  cellLabel,
   createBoard,
   nextOptions,
+  panelLabel,
 } from './board.js';
 
 export const PHASE = {
@@ -573,7 +575,11 @@ export function applyAction(state, actorId, action) {
     }
     player.panels[panel] -= 1;
     state.panelsOnBoard[pending.cellId] = { type: panel, ownerId: player.id };
-    pushLog(state, `${player.name} がマス${pending.cellId}に${panel}を設置`, 'ok');
+    pushLog(
+      state,
+      `${player.name} がマス${cellLabel(state.board, pending.cellId)}に${panelLabel(panel)}を設置`,
+      'ok',
+    );
     state.pending = null;
     continueAfterPanelStep(state, player);
     return { ok: true };
@@ -594,7 +600,7 @@ export function applyAction(state, actorId, action) {
     const panel = action.panel;
     if (!PANEL_TYPES.includes(panel)) return { ok: false, error: '不正なパネル' };
     player.panels[panel] += 1;
-    pushLog(state, `${player.name} が${panel}を1枚補充`, 'ok');
+    pushLog(state, `${player.name} が${panelLabel(panel)}を1枚補充`, 'ok');
     if (state._refillQueue) {
       state._refillQueue = state._refillQueue.filter((id) => id !== player.id);
     }
