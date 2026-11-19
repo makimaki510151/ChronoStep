@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBoard, nextOptions } from '../js/board.js';
+import { createBoard, nextOptions, panelLabel, cellLabel } from '../js/board.js';
 import {
   PHASE,
   applyAction,
@@ -33,6 +33,19 @@ describe('board', () => {
   it('branch offers two options clockwise', () => {
     const board = createBoard();
     assert.deepEqual(nextOptions(board, 5, 'cw').sort((a, b) => a - b), [6, 24]);
+  });
+
+  it('panelLabel returns Japanese names', () => {
+    assert.equal(panelLabel('drain'), 'ドレイン');
+    assert.equal(panelLabel('boost'), 'ブースト');
+    assert.equal(panelLabel('reverse'), 'リバース');
+    assert.equal(panelLabel('lock'), 'ロック');
+  });
+
+  it('cellLabel uses board labels', () => {
+    const board = createBoard();
+    assert.equal(cellLabel(board, 0), 'START');
+    assert.equal(cellLabel(board, 2), board.cells[2].label);
   });
 });
 
@@ -161,6 +174,9 @@ describe('engine basics', () => {
     assert.equal(res.ok, true);
     assert.equal(state.panelsOnBoard[2].type, 'drain');
     assert.equal(state.players[0].panels.drain, 1);
+    const placeLog = state.log.map((l) => l.text).find((t) => t.includes('設置'));
+    assert.ok(placeLog?.includes('ドレイン'), `expected JP panel name in log, got: ${placeLog}`);
+    assert.ok(!placeLog?.includes('drain'), `raw panel id must not appear: ${placeLog}`);
   });
 
   it('boost adds free steps in preview', () => {

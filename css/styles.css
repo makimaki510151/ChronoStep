@@ -446,22 +446,26 @@ button:disabled { opacity: .42; cursor: default; }
 
 .dice-pool-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.8rem;
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
+  /* ホバーでアシストが出てもバー高さが跳ねない */
+  min-height: 6.4rem;
 }
 .dice-pool-label {
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   color: var(--muted);
   text-transform: uppercase;
+  padding-top: 1.1rem;
 }
 .dice-pool {
   display: flex;
   gap: 0.55rem;
   flex-wrap: wrap;
+  padding-top: 0.35rem;
 }
 .die {
   position: relative;
@@ -479,30 +483,24 @@ button:disabled { opacity: .42; cursor: default; }
   border: 2px solid rgba(90, 70, 30, 0.35);
   box-shadow: 0 4px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.45);
   cursor: pointer;
-  transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+  /* transform アニメはホバーと干渉して荒ぶるため使わない */
+  transition: filter .12s ease, box-shadow .12s ease, border-color .12s ease;
 }
 .die:hover:not(:disabled) {
-  transform: translateY(-4px) scale(1.04);
-  box-shadow: 0 8px 0 rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.45);
+  filter: brightness(1.06);
+  box-shadow: 0 4px 0 rgba(0,0,0,0.25), 0 0 0 2px color-mix(in srgb, var(--brass) 55%, transparent);
 }
 .die:disabled { cursor: default; filter: grayscale(0.25) brightness(0.9); }
 .die.selected,
 .die:focus-visible {
   outline: 2px solid var(--brass-strong);
-  transform: translateY(-5px) scale(1.06);
+  box-shadow: 0 4px 0 rgba(0,0,0,0.25), 0 0 0 2px color-mix(in srgb, var(--brass-strong) 70%, transparent);
 }
 .die.danger-die:not(:disabled) {
   box-shadow: 0 4px 0 rgba(0,0,0,0.25), 0 0 0 2px color-mix(in srgb, var(--danger) 55%, transparent);
 }
 .die.safe-die:not(:disabled) {
   box-shadow: 0 4px 0 rgba(0,0,0,0.25), 0 0 0 2px color-mix(in srgb, var(--ok) 45%, transparent);
-}
-.die.pickable:not(:disabled) {
-  animation: die-idle 1.8s ease-in-out infinite;
-}
-@keyframes die-idle {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
 }
 .die .die-tag {
   position: absolute;
@@ -515,6 +513,7 @@ button:disabled { opacity: .42; cursor: default; }
   border: 1px solid var(--line);
   padding: 0.05rem 0.25rem;
   line-height: 1.2;
+  pointer-events: none;
 }
 .die.danger-die .die-tag { color: var(--danger); }
 .dice-meta {
@@ -523,6 +522,8 @@ button:disabled { opacity: .42; cursor: default; }
   gap: 0.25rem;
   min-width: min(280px, 100%);
   flex: 1;
+  /* アシスト出し入れでバー全体が跳ねないよう高さを確保 */
+  min-height: 5.6rem;
 }
 .dice-hint { color: var(--muted); font-size: 0.82rem; }
 .dice-hint.mine {
@@ -536,9 +537,14 @@ button:disabled { opacity: .42; cursor: default; }
   background: color-mix(in srgb, var(--bg0) 80%, transparent);
   border: 1px solid var(--line);
   padding: 0.4rem 0.55rem;
-  animation: assist-in .18s ease;
+  /* 固定高で表示切替時のレイアウト揺れを防ぐ */
+  height: 4.4rem;
+  overflow: hidden;
+  pointer-events: none;
 }
-.strategy-assist[hidden] { display: none; }
+.strategy-assist.is-empty {
+  visibility: hidden;
+}
 .strategy-assist .sa-title {
   color: var(--brass-strong);
   font-weight: 700;
@@ -546,10 +552,6 @@ button:disabled { opacity: .42; cursor: default; }
 }
 .strategy-assist .sa-bad { color: var(--danger); }
 .strategy-assist .sa-good { color: var(--ok); }
-@keyframes assist-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
-}
 
 #screen-game.my-turn .board-column {
   box-shadow: inset 0 2px 0 color-mix(in srgb, var(--brass) 55%, transparent);

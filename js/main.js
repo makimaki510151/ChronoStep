@@ -821,7 +821,7 @@ function uniquePreviews(previews) {
 function showStrategyAssist(die, playerId) {
   const assist = $('#strategy-assist');
   if (!assist || !app.state || !die) {
-    if (assist) assist.hidden = true;
+    clearStrategyAssist();
     return;
   }
   const previews = uniquePreviews(previewDestinations(app.state, playerId, die.value));
@@ -841,14 +841,16 @@ function showStrategyAssist(die, playerId) {
     lines.push('目立った罠・設置機会なし — 距離と手番順で判断');
   }
   assist.innerHTML = lines.join('<br>');
-  assist.hidden = false;
+  assist.classList.remove('is-empty');
+  assist.setAttribute('aria-hidden', 'false');
 }
 
 function clearStrategyAssist() {
   const assist = $('#strategy-assist');
   if (assist) {
-    assist.hidden = true;
     assist.innerHTML = '';
+    assist.classList.add('is-empty');
+    assist.setAttribute('aria-hidden', 'true');
   }
   app.hoveredDieId = null;
 }
